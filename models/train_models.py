@@ -103,6 +103,12 @@ user_item_sparse = csr_matrix(user_item_matrix.values)
 als_model = AlternatingLeastSquares(factors=50, iterations=20, regularization=0.1)
 als_model.fit(user_item_sparse)
 
+# Stocker les facteurs comme numpy arrays (évite d'importer implicit dans Lambda)
+als_artifacts = {
+    "user_factors":  als_model.user_factors,   # shape (n_users, factors)
+    "item_factors":  als_model.item_factors,   # shape (n_items, factors)
+}
+
 print("  ALS entraîné.")
 
 # ─────────────────────────────────────────────
@@ -126,12 +132,15 @@ print(f"  Matrice similarité : {item_similarity.shape}")
 # ─────────────────────────────────────────────
 print("\nSauvegarde des artefacts...")
 
+# Pré-calculer user_clicks : évite de charger pandas dans Lambda
+user_clicks = train_df.groupby("user_id")["click_article_id"].apply(list).to_dict()
+
 artifacts = {
     "mappings.pkl":         mappings,
-    "als_model.pkl":        als_model,
-    "embeddings_pca.pkl":   {"embeddings": embeddings_pca, "pca": pca},
+    "als_model.pkl":        als_artifacts,
+    "embeddings_pca.pkl":   embeddings_pca,   # numpy array uniquement (pas l'objet PCA)
     "item_similarity.pkl":  item_similarity,
-    "train_df.pkl":         train_df,
+    "user_clicks.pkl":      user_clicks,   # remplace train_df dans Lambda
 }
 
 for filename, obj in artifacts.items():

@@ -9,9 +9,11 @@ Payload attendu (JSON) :
 Réponse :
     { "user_id": 123456, "model": "als", "recommendations": [id1, id2, id3, id4, id5] }
 
-Variables d'environnement Lambda à configurer :
+Variables d'environnement Lambda :
     S3_BUCKET  – nom du bucket S3 contenant les artefacts
     S3_PREFIX  – préfixe (défaut : "models/")
+
+Dépendances : numpy uniquement (boto3 est fourni par le runtime Lambda)
 """
 
 import json
@@ -20,18 +22,14 @@ import pickle
 import boto3
 import numpy as np
 
-# ─────────────────────────────────────────────
-# Chargement des artefacts (une seule fois au démarrage du container)
-# ─────────────────────────────────────────────
 S3_BUCKET = os.environ["S3_BUCKET"]
 S3_PREFIX = os.environ.get("S3_PREFIX", "models/")
 
-s3 = boto3.client("s3")
+s3     = boto3.client("s3")
 _cache = {}
 
 
 def _load(filename: str):
-    """Charge un fichier pickle depuis S3 (mis en cache en mémoire)."""
     if filename not in _cache:
         tmp_path = f"/tmp/{filename}"
         s3.download_file(S3_BUCKET, S3_PREFIX + filename, tmp_path)
@@ -40,87 +38,87 @@ def _load(filename: str):
     return _cache[filename]
 
 
-def _get_mappings():
-    return _load("mappings.pkl")
+# ─────────────────────────────────────────────
+# Helpers communs
+# ─────────────────────────────────────────────
+
+def _seen_indices(user_id, article_idx):
+    """Indices des articles déjà vus par l'utilisateur."""
+    user_clicks = _load("user_clicks.pkl")
+    seen_aids   = user_clicks.get(user_id, [])
+    return [article_idx[a] for a in seen_aids if a in article_idx]
+
+
+def _fallback(top_n: int) -> list:
+    return _load("mappings.pkl")["article_ids"][:top_n]
+
+
+def _top_n(scores, idx_article, seen_indices, top_n):
+    scores = scores.copy()
+    if seen_indices:
+        scores[seen_indices] = -np.inf
+    top = np.argpartition(scores, -top_n)[-top_n:]
+    top = top[np.argsort(scores[top])[::-1]]
+    return [idx_article[i] for i in top]
 
 
 # ─────────────────────────────────────────────
-# Fonctions de recommandation
+# Modèles
 # ─────────────────────────────────────────────
 
 def recommend_als(user_id: int, top_n: int = 5) -> list:
-    als_model = _load("als_model.pkl")
-    mappings  = _get_mappings()
-
-    user_idx  = mappings["user_idx"]
+    als         = _load("als_model.pkl")
+    mappings    = _load("mappings.pkl")
+    user_idx    = mappings["user_idx"]
     idx_article = mappings["idx_article"]
 
     if user_id not in user_idx:
         return _fallback(top_n)
 
-    u_idx = user_idx[user_id]
-    ids, _ = als_model.recommend(
-        u_idx,
-        als_model.user_factors[u_idx],   # vecteur utilisateur
-        N=top_n,
-        filter_already_liked_items=True,
-    )
-    return [idx_article[i] for i in ids]
+    u_vec  = als["user_factors"][user_idx[user_id]]
+    scores = als["item_factors"] @ u_vec
+    return _top_n(scores, idx_article, _seen_indices(user_id, mappings["article_idx"]), top_n)
 
 
 def recommend_embeddings(user_id: int, top_n: int = 5) -> list:
-    emb_data  = _load("embeddings_pca.pkl")
-    mappings  = _get_mappings()
-    train_df  = _load("train_df.pkl")
+    embeddings  = _load("embeddings_pca.pkl")   # numpy array directement
+    mappings    = _load("mappings.pkl")
+    user_clicks = _load("user_clicks.pkl")
 
-    embeddings = emb_data["embeddings"]
-    aid_to_idx = mappings["article_id_to_emb_index"]
+    aid_to_idx     = mappings["article_id_to_emb_index"]
     emb_article_ids = mappings["emb_article_ids"]
 
-    clicked = train_df[train_df["user_id"] == user_id]["click_article_id"].tolist()
+    clicked = user_clicks.get(user_id, [])
     indices = [aid_to_idx[aid] for aid in clicked if aid in aid_to_idx]
 
     if not indices:
         return _fallback(top_n)
 
     user_profile = embeddings[indices].mean(axis=0, keepdims=True)
-    scores = (embeddings @ user_profile.T).flatten()
+    scores       = (embeddings @ user_profile.T).flatten()
 
-    # Exclure déjà vus
-    seen_indices = set(indices)
-    scores[list(seen_indices)] = -np.inf
-
-    top_indices = np.argpartition(scores, -top_n)[-top_n:]
-    top_indices = top_indices[np.argsort(scores[top_indices])[::-1]]
-    return [emb_article_ids[i] for i in top_indices]
+    scores[indices] = -np.inf
+    top = np.argpartition(scores, -top_n)[-top_n:]
+    top = top[np.argsort(scores[top])[::-1]]
+    return [emb_article_ids[i] for i in top]
 
 
 def recommend_similarity(user_id: int, top_n: int = 5) -> list:
-    item_sim  = _load("item_similarity.pkl")
-    mappings  = _get_mappings()
-    train_df  = _load("train_df.pkl")
+    item_sim    = _load("item_similarity.pkl")
+    mappings    = _load("mappings.pkl")
+    user_clicks = _load("user_clicks.pkl")
 
-    article_idx  = mappings["article_idx"]
-    idx_article  = mappings["idx_article"]
+    article_idx = mappings["article_idx"]
+    idx_article = mappings["idx_article"]
 
-    clicked = train_df[train_df["user_id"] == user_id]["click_article_id"].tolist()
+    clicked = user_clicks.get(user_id, [])
     indices = [article_idx[aid] for aid in clicked if aid in article_idx]
 
     if not indices:
         return _fallback(top_n)
 
     scores = item_sim[indices].sum(axis=0)
-    scores[indices] = -np.inf  # exclure déjà vus
-
-    top_indices = np.argpartition(scores, -top_n)[-top_n:]
-    top_indices = top_indices[np.argsort(scores[top_indices])[::-1]]
-    return [idx_article[i] for i in top_indices]
-
-
-def _fallback(top_n: int) -> list:
-    """Retourne les articles les plus populaires si l'utilisateur est inconnu."""
-    mappings = _get_mappings()
-    return mappings["article_ids"][:top_n]
+    return _top_n(scores, idx_article, indices, top_n)
 
 
 # ─────────────────────────────────────────────
@@ -142,7 +140,7 @@ def lambda_handler(event, context):
         if model_name not in MODELS:
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": f"Modèle inconnu : {model_name}. Valeurs acceptées : {list(MODELS)}"}),
+                "body": json.dumps({"error": f"Modèle inconnu : {model_name}. Valeurs : {list(MODELS)}"}),
             }
 
         recommendations = MODELS[model_name](user_id)
@@ -150,8 +148,8 @@ def lambda_handler(event, context):
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "user_id":        user_id,
-                "model":          model_name,
+                "user_id":         user_id,
+                "model":           model_name,
                 "recommendations": recommendations,
             }),
         }
