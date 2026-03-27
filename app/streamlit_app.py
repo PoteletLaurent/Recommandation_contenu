@@ -37,8 +37,14 @@ MODEL_OPTIONS = {
 # ─────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    articles = pd.read_csv(os.path.join(DATA_DIR, "articles_metadata.csv"))
-    clicks   = pd.read_csv(os.path.join(DATA_DIR, "clicks_sample.csv"))
+    articles = pd.read_csv(
+        os.path.join(DATA_DIR, "articles_metadata.csv"),
+        usecols=["article_id", "category_id", "words_count"],
+    )
+    clicks = pd.read_csv(
+        os.path.join(DATA_DIR, "clicks_sample.csv"),
+        usecols=["user_id", "click_article_id"],
+    )
     user_ids = sorted(clicks["user_id"].unique().tolist())
     return articles, clicks, user_ids
 
@@ -113,7 +119,7 @@ if data_loaded:
 
     if user_history:
         history_info = articles_df[articles_df["article_id"].isin(user_history)][
-            ["article_id", "category_id", "publisher_id", "words_count"]
+            ["article_id", "category_id", "words_count"]
         ].drop_duplicates()
         st.dataframe(history_info, use_container_width=True)
     else:
@@ -128,19 +134,26 @@ if data_loaded:
                 reco_ids = call_lambda(user_id, model_key)
 
                 reco_info = articles_df[articles_df["article_id"].isin(reco_ids)][
-                    ["article_id", "category_id", "publisher_id", "words_count"]
+                    ["article_id", "category_id", "words_count"]
                 ].set_index("article_id").reindex(reco_ids).reset_index()
+
+                # Catégories de l'historique utilisateur (pour l'indicateur)
+                user_categories = set(
+                    articles_df[articles_df["article_id"].isin(user_history)]["category_id"].tolist()
+                )
 
                 # Affichage en cartes
                 cols = st.columns(5)
                 for i, (col, row) in enumerate(zip(cols, reco_info.itertuples())):
                     with col:
+                        same_cat = row.category_id in user_categories
                         st.metric(label=f"#{i+1}", value=f"Article {row.article_id}")
                         st.caption(
                             f"Catégorie : {row.category_id}\n"
-                            f"Éditeur   : {row.publisher_id}\n"
                             f"Mots      : {row.words_count}"
                         )
+                        if same_cat:
+                            st.success("Même catégorie que votre historique")
 
                 st.success(f"Recommandations générées par le modèle **{model_label}**.")
 
