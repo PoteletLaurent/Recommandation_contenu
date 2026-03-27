@@ -79,9 +79,9 @@ def call_lambda(user_id: int, model: str) -> list:
 # ─────────────────────────────────────────────
 # Interface Streamlit
 # ─────────────────────────────────────────────
-st.set_page_config(page_title="Recommandation d'articles", page_icon="📰", layout="wide")
+st.set_page_config(page_title="Recommandation d'articles", layout="wide")
 
-st.title("📰 Système de recommandation d'articles")
+st.title("Système de recommandation d'articles")
 st.caption("MVP – Moteur de recommandation via AWS Lambda")
 
 # Chargement
