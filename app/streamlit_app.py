@@ -18,6 +18,7 @@ import os
 import boto3
 import pandas as pd
 import streamlit as st
+from botocore.config import Config
 
 # ─────────────────────────────────────────────
 # Configuration
@@ -51,7 +52,8 @@ def load_data():
 
 @st.cache_resource
 def get_lambda_client():
-    return boto3.client("lambda", region_name=AWS_REGION)
+    config = Config(read_timeout=60, connect_timeout=10)
+    return boto3.client("lambda", region_name=AWS_REGION, config=config)
 
 
 # ─────────────────────────────────────────────
