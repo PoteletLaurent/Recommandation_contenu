@@ -24,8 +24,8 @@ from botocore.config import Config
 # Configuration
 # ─────────────────────────────────────────────
 AWS_REGION      = os.environ.get("AWS_REGION", "eu-west-3")
-LAMBDA_FUNCTION = os.environ.get("LAMBDA_FUNCTION", "recommandation-handler")
-DATA_DIR        = os.environ.get("DATA_DIR", os.path.expanduser("~/news-portal-user-interactions-by-globocom"))
+LAMBDA_FUNCTION = os.environ.get("LAMBDA_FUNCTION", "p10-recommandation-handler")
+DATA_DIR        = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "news-portal-user-interactions-by-globocom"))
 
 MODEL_OPTIONS = {
     "Similarité item-based (meilleur rappel)": "similarity",
@@ -99,11 +99,15 @@ if data_loaded:
     st.sidebar.header("Paramètres")
 
     # ── Sélection utilisateur ──────────────────
-    user_id = st.sidebar.selectbox(
-        "Utilisateur",
-        options=user_ids,
-        format_func=lambda x: f"User {x}",
-    )
+    user_input = st.sidebar.text_input("User ID (0 – 322 897)", value="")
+    if user_input.strip().isdigit():
+        user_id = int(user_input.strip())
+    else:
+        user_id = st.sidebar.selectbox(
+            "Ou choisir parmi les utilisateurs du sample",
+            options=user_ids,
+            format_func=lambda x: f"User {x}",
+        )
 
     # ── Sélection modèle ──────────────────────
     model_label = st.sidebar.radio(

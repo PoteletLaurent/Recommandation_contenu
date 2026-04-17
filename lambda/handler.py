@@ -100,7 +100,7 @@ def recommend_embeddings(user_id: int, top_n: int = 5) -> list:
     scores[indices] = -np.inf
     top = np.argpartition(scores, -top_n)[-top_n:]
     top = top[np.argsort(scores[top])[::-1]]
-    return [emb_article_ids[i] for i in top]
+    return [int(emb_article_ids[i]) for i in top]
 
 
 def recommend_similarity(user_id: int, top_n: int = 5) -> list:
@@ -108,8 +108,10 @@ def recommend_similarity(user_id: int, top_n: int = 5) -> list:
     mappings    = _load("mappings.pkl")
     user_clicks = _load("user_clicks.pkl")
 
-    article_idx = mappings["article_idx"]
-    idx_article = mappings["idx_article"]
+    # sim_article_idx/sim_idx_article : sous-ensemble des articles les plus cliqués
+    # Fallback sur article_idx pour compatibilité avec les anciens artefacts
+    article_idx = mappings.get("sim_article_idx", mappings["article_idx"])
+    idx_article = mappings.get("sim_idx_article", mappings["idx_article"])
 
     clicked = user_clicks.get(user_id, [])
     indices = [article_idx[aid] for aid in clicked if aid in article_idx]
