@@ -24,7 +24,7 @@ import streamlit as st
 # ─────────────────────────────────────────────
 AWS_REGION      = os.environ.get("AWS_REGION", "eu-west-3")
 LAMBDA_FUNCTION = os.environ.get("LAMBDA_FUNCTION", "recommandation-handler")
-DATA_DIR        = os.environ.get("DATA_DIR", "../news-portal-user-interactions-by-globocom")
+DATA_DIR        = os.environ.get("DATA_DIR", os.path.expanduser("~/news-portal-user-interactions-by-globocom"))
 
 MODEL_OPTIONS = {
     "Similarité item-based (meilleur rappel)": "similarity",
@@ -167,7 +167,7 @@ if data_loaded:
                 )
 
     # ── Comparaison des modèles ────────────────
-    with st.expander("ℹ️ Comparaison des modèles"):
+    with st.expander("Comparaison des modèles"):
         st.table(
             pd.DataFrame({
                 "Modèle":       ["ALS", "Embeddings (PCA)", "Similarité item-based"],
